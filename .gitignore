@@ -1,0 +1,6 @@
+# Archivos de credenciales y tokens
+credentials.json
+token.pickle
+# Archivos temporales
+*.pyc
+__pycache__/ 
