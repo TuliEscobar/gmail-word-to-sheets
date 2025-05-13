@@ -8,6 +8,11 @@ from docx import Document
 from dotenv import load_dotenv
 import google.generativeai as genai
 import json
+import re
+import win32com.client as win32
+from tempfile import mkstemp
+import time
+import subprocess
 
 # Cargar variables de entorno
 load_dotenv()
@@ -39,10 +44,10 @@ def authenticate_google():
     return creds
 
 def buscar_ultimo_correo_con_word_no_leido(service):
-    results = service.users().messages().list(userId='me', q="is:unread has:attachment filename:docx", maxResults=1).execute()
+    results = service.users().messages().list(userId='me', q="is:unread has:attachment (filename:docx OR filename:doc)", maxResults=1).execute()
     messages = results.get('messages', [])
     if not messages:
-        print("No se encontraron correos NO LEÍDOS con adjuntos Word.")
+        print("No se encontraron correos con adjuntos Word.")
         return None
     return messages[0]['id']
 
@@ -50,24 +55,96 @@ def descargar_adjunto_word(service, msg_id):
     message = service.users().messages().get(userId='me', id=msg_id).execute()
     for part in message['payload'].get('parts', []):
         filename = part.get('filename')
-        if filename and filename.endswith('.docx'):
+        if filename and filename.lower().endswith(('.docx', '.doc')):
+            # Limpiar nombre de archivo y usar ruta temporal segura
+            safe_filename = ''.join(c for c in filename if c.isalnum() or c in (' ', '.', '_')).rstrip()
+            temp_path = os.path.join(os.getenv('TEMP', '.'), safe_filename)
+            
             att_id = part['body']['attachmentId']
             att = service.users().messages().attachments().get(userId='me', messageId=msg_id, id=att_id).execute()
             data = att['data']
             file_data = base64.urlsafe_b64decode(data.encode('UTF-8'))
-            with open(filename, 'wb') as f:
-                f.write(file_data)
-            print(f"Adjunto guardado como: {filename}")
-            return filename
+            
+            try:
+                with open(temp_path, 'wb') as f:
+                    f.write(file_data)
+                print(f"Adjunto guardado como: {temp_path}")
+                return temp_path
+            except PermissionError:
+                # Segundo intento con nombre alternativo
+                alt_path = os.path.join(os.getenv('TEMP', '.'), f"temp_{int(time.time())}.doc")
+                with open(alt_path, 'wb') as f:
+                    f.write(file_data)
+                print(f"Adjunto guardado como: {alt_path}")
+                return alt_path
+    
     print("No se encontró adjunto Word en el correo.")
     return None
 
+def convert_doc_to_docx(doc_path):
+    """Convierte archivo .doc a .docx usando Word"""
+    try:
+        # Primero cerramos cualquier instancia previa de Word
+        os.system('taskkill /f /im winword.exe')
+        
+        word = win32.gencache.EnsureDispatch('Word.Application')
+        word.Visible = False
+        word.DisplayAlerts = False  # Deshabilitar alertas
+        
+        # Usar ruta absoluta y esperar entre operaciones
+        doc = word.Documents.Open(os.path.abspath(doc_path))
+        time.sleep(1)  # Pequeña pausa
+        
+        new_path = mkstemp(suffix='.docx')[1]
+        doc.SaveAs(new_path, FileFormat=16)
+        time.sleep(1)
+        
+        doc.Close(False)
+        word.Quit()
+        time.sleep(1)
+        
+        # Forzar liberación de recursos
+        del doc
+        del word
+        
+        os.remove(doc_path)
+        return new_path
+    except Exception as e:
+        print(f"Error al convertir {doc_path} a .docx: {str(e)}")
+        try:
+            word.Quit()
+        except:
+            pass
+        return None
+
 def extraer_texto_word(filename):
-    doc = Document(filename)
-    texto = []
-    for para in doc.paragraphs:
-        texto.append(para.text)
-    return '\n'.join(texto)
+    """Extrae texto de archivos Word (.doc o .docx)"""
+    try:
+        if filename.lower().endswith('.doc'):
+            # Método alternativo para .doc sin antiword
+            try:
+                with open(filename, 'rb') as f:
+                    content = f.read()
+                    # Extraer texto entre secuencias de texto comunes en .doc
+                    text_parts = re.findall(b'[\x20-\x7E\x0A\x0D]{20,}', content)
+                    return b' '.join(text_parts).decode('latin-1', errors='ignore')
+            except Exception as e:
+                print(f"Error al leer .doc: {str(e)}")
+                return ""
+        else:
+            # Método para .docx
+            try:
+                doc = Document(filename)
+                return '\n'.join(para.text for para in doc.paragraphs if para.text)
+            except Exception as e:
+                print(f"Error al leer .docx: {str(e)}")
+                return ""
+    finally:
+        if filename and os.path.exists(filename):
+            try:
+                os.remove(filename)
+            except:
+                pass
 
 def extraer_parametros_con_gemini(texto):
     if not GEMINI_API_KEY:
@@ -131,7 +208,6 @@ def main():
     parametros = extraer_parametros_con_gemini(texto)
     escribir_en_sheets_parametros(creds, parametros, SPREADSHEET_ID)
     marcar_como_leido(gmail_service, msg_id)
-    os.remove(filename)
 
 if __name__ == '__main__':
-    main() 
+    main()
