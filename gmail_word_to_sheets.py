@@ -5,6 +5,15 @@ from googleapiclient.discovery import build
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
 from docx import Document
+from dotenv import load_dotenv
+import google.generativeai as genai
+import json
+
+# Cargar variables de entorno
+load_dotenv()
+GEMINI_API_KEY = os.getenv('API_KEY_GOOGLE')
+SPREADSHEET_ID = os.getenv('SPREADSHEET_ID')
+RANGE_NAME = os.getenv('RANGE_NAME', 'A1')
 
 # SCOPES necesarios
 SCOPES = [
@@ -12,9 +21,7 @@ SCOPES = [
     'https://www.googleapis.com/auth/spreadsheets'
 ]
 
-# ID de tu hoja de cálculo de Google Sheets
-SPREADSHEET_ID = '16Jz0JVAcuCk2qfjuG2xeJzTystSdbnyfF2L8B2dvYX0'  # <-- Cambia esto por el ID de tu hoja
-RANGE_NAME = 'A1'  # Puedes cambiar el rango si lo deseas
+
 
 def authenticate_google():
     creds = None
@@ -62,13 +69,45 @@ def extraer_texto_word(filename):
         texto.append(para.text)
     return '\n'.join(texto)
 
-def escribir_en_sheets(creds, texto, spreadsheet_id, range_name):
+def extraer_parametros_con_gemini(texto):
+    if not GEMINI_API_KEY:
+        raise Exception("No se encontró la API Key de Gemini. Asegúrate de tener API_KEY_GOOGLE en tu .env.")
+    genai.configure(api_key=GEMINI_API_KEY)
+    model = genai.GenerativeModel('gemini-1.5-flash')
+    prompt = (
+        """
+        Extrae los siguientes parámetros del texto de un documento oficial. Devuelve solo un JSON con las claves exactas:
+        REF, CONCURSO, FECHA Y HORA, DESCRIPCION, CANTIDAD.
+        Si algún dato no está, deja el valor vacío.
+        Ejemplo de respuesta:
+        {"REF": "Bordon Ruben Anibal", "CONCURSO": "2171/2025", "FECHA Y HORA": "12/05/2025 09:05:00", "DESCRIPCION": "Pembrolizumab 100 mg. Fco. Amp. x 1 x 4 ml.", "CANTIDAD": "2"}
+        Texto:
+        """ + texto
+    )
+    response = model.generate_content(prompt)
+    # Buscar el primer bloque JSON en la respuesta
+    try:
+        json_str = response.text[response.text.index('{'):response.text.rindex('}')+1]
+        datos = json.loads(json_str)
+    except Exception as e:
+        print("Error al parsear la respuesta de Gemini:", e)
+        print("Respuesta completa:", response.text)
+        datos = {"REF": "", "CONCURSO": "", "FECHA Y HORA": "", "DESCRIPCION": "", "CANTIDAD": ""}
+    return datos
+
+def escribir_en_sheets_parametros(creds, parametros, spreadsheet_id):
     service = build('sheets', 'v4', credentials=creds)
-    # Divide el texto en filas (puedes ajustar esto según tu formato)
-    values = [[line] for line in texto.split('\n') if line.strip()]
+    # Orden: A: REF, B: CONCURSO, C: FECHA Y HORA, D: DESCRIPCION, E: CANTIDAD
+    values = [[
+        parametros.get("REF", ""),
+        parametros.get("CONCURSO", ""),
+        parametros.get("FECHA Y HORA", ""),
+        parametros.get("DESCRIPCION", ""),
+        parametros.get("CANTIDAD", "")
+    ]]
     body = {'values': values}
     result = service.spreadsheets().values().append(
-        spreadsheetId=spreadsheet_id, range=range_name,
+        spreadsheetId=spreadsheet_id, range='A1',
         valueInputOption="RAW", body=body).execute()
     print(f"{result.get('updates').get('updatedCells')} celdas actualizadas en Google Sheets.")
 
@@ -82,7 +121,8 @@ def main():
     if not filename:
         return
     texto = extraer_texto_word(filename)
-    escribir_en_sheets(creds, texto, SPREADSHEET_ID, RANGE_NAME)
+    parametros = extraer_parametros_con_gemini(texto)
+    escribir_en_sheets_parametros(creds, parametros, SPREADSHEET_ID)
     # Limpia el archivo descargado
     os.remove(filename)
 
