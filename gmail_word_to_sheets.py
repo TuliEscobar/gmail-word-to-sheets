@@ -17,7 +17,7 @@ RANGE_NAME = os.getenv('RANGE_NAME', 'A1')
 
 # SCOPES necesarios
 SCOPES = [
-    'https://www.googleapis.com/auth/gmail.readonly',
+    'https://www.googleapis.com/auth/gmail.modify',
     'https://www.googleapis.com/auth/spreadsheets'
 ]
 
@@ -38,11 +38,11 @@ def authenticate_google():
             pickle.dump(creds, token)
     return creds
 
-def buscar_ultimo_correo_con_word(service):
-    results = service.users().messages().list(userId='me', q="has:attachment filename:docx", maxResults=1).execute()
+def buscar_ultimo_correo_con_word_no_leido(service):
+    results = service.users().messages().list(userId='me', q="is:unread has:attachment filename:docx", maxResults=1).execute()
     messages = results.get('messages', [])
     if not messages:
-        print("No se encontraron correos con adjuntos Word.")
+        print("No se encontraron correos NO LEÍDOS con adjuntos Word.")
         return None
     return messages[0]['id']
 
@@ -111,10 +111,17 @@ def escribir_en_sheets_parametros(creds, parametros, spreadsheet_id):
         valueInputOption="RAW", body=body).execute()
     print(f"{result.get('updates').get('updatedCells')} celdas actualizadas en Google Sheets.")
 
+def marcar_como_leido(service, msg_id):
+    service.users().messages().modify(
+        userId='me',
+        id=msg_id,
+        body={'removeLabelIds': ['UNREAD']}
+    ).execute()
+
 def main():
     creds = authenticate_google()
     gmail_service = build('gmail', 'v1', credentials=creds)
-    msg_id = buscar_ultimo_correo_con_word(gmail_service)
+    msg_id = buscar_ultimo_correo_con_word_no_leido(gmail_service)
     if not msg_id:
         return
     filename = descargar_adjunto_word(gmail_service, msg_id)
@@ -123,7 +130,7 @@ def main():
     texto = extraer_texto_word(filename)
     parametros = extraer_parametros_con_gemini(texto)
     escribir_en_sheets_parametros(creds, parametros, SPREADSHEET_ID)
-    # Limpia el archivo descargado
+    marcar_como_leido(gmail_service, msg_id)
     os.remove(filename)
 
 if __name__ == '__main__':
