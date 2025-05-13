@@ -4,3 +4,7 @@ token.pickle
 # Archivos temporales
 *.pyc
 __pycache__/ 
+# Archivos Word
+*.doc
+~$*.doc
+
