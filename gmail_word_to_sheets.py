@@ -13,6 +13,8 @@ import win32com.client as win32
 from tempfile import mkstemp
 import time
 import subprocess
+import schedule
+from PyPDF2 import PdfReader
 
 # Cargar variables de entorno
 load_dotenv()
@@ -25,8 +27,6 @@ SCOPES = [
     'https://www.googleapis.com/auth/gmail.modify',
     'https://www.googleapis.com/auth/spreadsheets'
 ]
-
-
 
 def authenticate_google():
     creds = None
@@ -43,19 +43,23 @@ def authenticate_google():
             pickle.dump(creds, token)
     return creds
 
-def buscar_ultimo_correo_con_word_no_leido(service):
-    results = service.users().messages().list(userId='me', q="is:unread has:attachment (filename:docx OR filename:doc)", maxResults=1).execute()
+def buscar_ultimo_correo_con_adjunto_no_leido(service):
+    results = service.users().messages().list(
+        userId='me', 
+        q="is:unread has:attachment (filename:docx OR filename:doc OR filename:pdf)", 
+        maxResults=1
+    ).execute()
     messages = results.get('messages', [])
     if not messages:
-        print("No se encontraron correos con adjuntos Word.")
+        print("No se encontraron correos con adjuntos Word o PDF.")
         return None
     return messages[0]['id']
 
-def descargar_adjunto_word(service, msg_id):
+def descargar_adjunto(service, msg_id):
     message = service.users().messages().get(userId='me', id=msg_id).execute()
     for part in message['payload'].get('parts', []):
         filename = part.get('filename')
-        if filename and filename.lower().endswith(('.docx', '.doc')):
+        if filename and filename.lower().endswith(('.docx', '.doc', '.pdf')):
             # Limpiar nombre de archivo y usar ruta temporal segura
             safe_filename = ''.join(c for c in filename if c.isalnum() or c in (' ', '.', '_')).rstrip()
             temp_path = os.path.join(os.getenv('TEMP', '.'), safe_filename)
@@ -72,13 +76,13 @@ def descargar_adjunto_word(service, msg_id):
                 return temp_path
             except PermissionError:
                 # Segundo intento con nombre alternativo
-                alt_path = os.path.join(os.getenv('TEMP', '.'), f"temp_{int(time.time())}.doc")
+                alt_path = os.path.join(os.getenv('TEMP', '.'), f"temp_{int(time.time())}.pdf")
                 with open(alt_path, 'wb') as f:
                     f.write(file_data)
                 print(f"Adjunto guardado como: {alt_path}")
                 return alt_path
     
-    print("No se encontró adjunto Word en el correo.")
+    print("No se encontró adjunto Word o PDF en el correo.")
     return None
 
 def convert_doc_to_docx(doc_path):
@@ -117,10 +121,18 @@ def convert_doc_to_docx(doc_path):
             pass
         return None
 
-def extraer_texto_word(filename):
-    """Extrae texto de archivos Word (.doc o .docx)"""
+def extraer_texto_archivo(filename):
+    """Extrae texto de archivos Word (.doc, .docx) o PDF"""
     try:
-        if filename.lower().endswith('.doc'):
+        if filename.lower().endswith('.pdf'):
+            # Extraer texto de PDF
+            with open(filename, 'rb') as f:
+                reader = PdfReader(f)
+                text = ''
+                for page in reader.pages:
+                    text += page.extract_text() + '\n'
+            return text
+        elif filename.lower().endswith('.doc'):
             # Método alternativo para .doc sin antiword
             try:
                 with open(filename, 'rb') as f:
@@ -139,6 +151,9 @@ def extraer_texto_word(filename):
             except Exception as e:
                 print(f"Error al leer .docx: {str(e)}")
                 return ""
+    except Exception as e:
+        print(f"Error al leer archivo {filename}: {str(e)}")
+        return ""
     finally:
         if filename and os.path.exists(filename):
             try:
@@ -156,6 +171,7 @@ def extraer_parametros_con_gemini(texto):
         Extrae los siguientes parámetros del texto de un documento oficial. Devuelve solo un JSON con las claves exactas:
         REF, CONCURSO, FECHA Y HORA, DESCRIPCION, CANTIDAD.
         Si algún dato no está, deja el valor vacío.
+        El dato de REF siempre tiene que ser un nombre completo o dejarlo vacio
         Ejemplo de respuesta:
         {"REF": "Bordon Ruben Anibal", "CONCURSO": "2171/2025", "FECHA Y HORA": "12/05/2025 09:05:00", "DESCRIPCION": "Pembrolizumab 100 mg. Fco. Amp. x 1 x 4 ml.", "CANTIDAD": "2"}
         Texto:
@@ -196,18 +212,33 @@ def marcar_como_leido(service, msg_id):
     ).execute()
 
 def main():
-    creds = authenticate_google()
-    gmail_service = build('gmail', 'v1', credentials=creds)
-    msg_id = buscar_ultimo_correo_con_word_no_leido(gmail_service)
-    if not msg_id:
-        return
-    filename = descargar_adjunto_word(gmail_service, msg_id)
-    if not filename:
-        return
-    texto = extraer_texto_word(filename)
-    parametros = extraer_parametros_con_gemini(texto)
-    escribir_en_sheets_parametros(creds, parametros, SPREADSHEET_ID)
-    marcar_como_leido(gmail_service, msg_id)
+    while True:
+        try:
+            print("\n--- Iniciando ciclo de procesamiento ---")
+            creds = authenticate_google()
+            gmail_service = build('gmail', 'v1', credentials=creds)
+            msg_id = buscar_ultimo_correo_con_adjunto_no_leido(gmail_service)
+            if msg_id:
+                print(f"Procesando correo con ID: {msg_id}")
+                filename = descargar_adjunto(gmail_service, msg_id)
+                if filename:
+                    print(f"Archivo descargado: {filename}")
+                    if filename.lower().endswith('.doc'):
+                        filename = convert_doc_to_docx(filename)
+                    texto = extraer_texto_archivo(filename)
+                    parametros = extraer_parametros_con_gemini(texto)
+                    escribir_en_sheets_parametros(creds, parametros, SPREADSHEET_ID)
+                    marcar_como_leido(gmail_service, msg_id)
+            else:
+                print("No hay correos nuevos con adjuntos Word o PDF")
+        except Exception as e:
+            print(f"Error en ejecución: {str(e)}")
+        
+        print("Esperando 1 minuto para el próximo ciclo...")
+        time.sleep(60)  # Espera 1 minuto (60 segundos)
 
 if __name__ == '__main__':
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        print("\nDeteniendo el servicio...")
