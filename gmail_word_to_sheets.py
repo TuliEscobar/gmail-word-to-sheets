@@ -171,7 +171,8 @@ def extraer_parametros_con_gemini(texto):
         Extrae los siguientes parámetros del texto de un documento oficial. Devuelve solo un JSON con las claves exactas:
         REF, CONCURSO, FECHA Y HORA, DESCRIPCION, CANTIDAD.
         Si algún dato no está, deja el valor vacío.
-        El dato de REF siempre tiene que ser un nombre completo o dejarlo vacio
+        El dato de REF siempre tiene que ser un nombre completo o dejarlo vacio.
+        IMPORTANTE: Siempre hay nombres asi que busca y agregalo.
         Ejemplo de respuesta:
         {"REF": "Bordon Ruben Anibal", "CONCURSO": "2171/2025", "FECHA Y HORA": "12/05/2025 09:05:00", "DESCRIPCION": "Pembrolizumab 100 mg. Fco. Amp. x 1 x 4 ml.", "CANTIDAD": "2"}
         Texto:
