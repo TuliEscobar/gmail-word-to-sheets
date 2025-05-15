@@ -36,6 +36,18 @@ python gmail_word_to_sheets.py
 
 La primera vez te pedirá iniciar sesión con tu cuenta de Google y autorizar permisos.
 
+## Ejecución con Acceso Directo
+
+Para mayor comodidad, puedes usar el archivo `run_project.bat` incluido:
+
+1. **Doble click** en `run_project.bat` (se abrirá una ventana CMD)
+2. El script:
+   - Cambia automáticamente al directorio del proyecto
+   - Ejecuta `gmail_word_to_sheets.py` usando Python
+   - Mantiene la ventana abierta para ver resultados/errores
+
+**Nota:** Requiere tener Python instalado y en el PATH del sistema.
+
 ## Funcionamiento
 
 - Busca el correo NO LEÍDO más reciente con un adjunto Word.
