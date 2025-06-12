@@ -20,10 +20,23 @@ Si no tienes Python instalado:
 3. **IMPORTANTE:** Durante la instalación, marca la casilla que dice "Add Python to PATH"
 4. Haz clic en "Install Now"
 
-### 2. Descargar los archivos del proyecto
+### 2. Descargar el proyecto
 
-1. Descarga el código del proyecto (deberías tener ya estos archivos si estás leyendo esto)
-2. Guarda todos los archivos en una carpeta de tu computadora
+1. Abre el símbolo del sistema (CMD) o PowerShell
+2. Navega hasta la carpeta donde quieras guardar el proyecto, por ejemplo:
+   ```
+   cd Documentos
+   ```
+3. Clona el repositorio con el siguiente comando:
+   ```
+   git clone https://github.com/tu-usuario/gmail-word-to-sheets.git
+   ```
+4. Navega a la carpeta del proyecto:
+   ```
+   cd gmail-word-to-sheets
+   ```
+
+   **Nota:** Si el repositorio es privado, necesitarás tener acceso a él con tu cuenta de GitHub.
 
 ### 3. Instalar los programas necesarios
 
