@@ -8,3 +8,4 @@ __pycache__/
 *.doc
 ~$*.doc
 .env
+venv
