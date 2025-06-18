@@ -15,14 +15,7 @@ djangorestframework==3.15.2
 draftjs-exporter==5.0.0
 et_xmlfile==2.0.0
 filetype==1.2.0
-google-ai-generativelanguage==0.6.15
-google-api-core==2.24.2
-google-api-python-client==2.169.0
-google-auth==2.40.1
-google-auth-httplib2==0.2.0
-google-auth-oauthlib==1.2.0
 google-generativeai==0.3.0
-googleapis-common-protos==1.70.0
 idna==3.10
 l18n==2021.3
 laces==0.1.1
