@@ -1,6 +1,9 @@
 import os
 import pickle
 import base64
+import platform
+import tempfile
+import shutil
 from googleapiclient.discovery import build
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
@@ -85,40 +88,80 @@ def descargar_adjunto(service, msg_id):
     print("No se encontró adjunto Word o PDF en el correo.")
     return None
 
+# Detectar el sistema operativo
+IS_WINDOWS = platform.system() == 'Windows'
+
 def convert_doc_to_docx(doc_path):
-    """Convierte archivo .doc a .docx usando Word"""
+    """Convierte archivo .doc a .docx usando LibreOffice en Linux y Word en Windows"""
     try:
-        # Primero cerramos cualquier instancia previa de Word
-        os.system('taskkill /f /im winword.exe')
+        if doc_path.lower().endswith('.docx'):
+            return doc_path
         
-        word = win32.gencache.EnsureDispatch('Word.Application')
-        word.Visible = False
-        word.DisplayAlerts = False  # Deshabilitar alertas
+        # Crear directorio temporal seguro
+        temp_dir = tempfile.mkdtemp()
+        output_path = os.path.join(temp_dir, 'converted.docx')
         
-        # Usar ruta absoluta y esperar entre operaciones
-        doc = word.Documents.Open(os.path.abspath(doc_path))
-        time.sleep(1)  # Pequeña pausa
-        
-        new_path = mkstemp(suffix='.docx')[1]
-        doc.SaveAs(new_path, FileFormat=16)
-        time.sleep(1)
-        
-        doc.Close(False)
-        word.Quit()
-        time.sleep(1)
-        
-        # Forzar liberación de recursos
-        del doc
-        del word
-        
-        os.remove(doc_path)
-        return new_path
+        if IS_WINDOWS:
+            # Usar Word en Windows
+            try:
+                word = win32.gencache.EnsureDispatch('Word.Application')
+                word.Visible = False
+                word.DisplayAlerts = False
+                
+                doc = word.Documents.Open(os.path.abspath(doc_path))
+                doc.SaveAs(output_path, FileFormat=16)
+                doc.Close(False)
+                word.Quit()
+                
+                # Limpiar recursos
+                del doc
+                del word
+                
+                # Copiar el archivo a la ubicación original
+                shutil.copy2(output_path, doc_path)
+                return doc_path
+                
+            except Exception as e:
+                print(f"Error al convertir con Word: {str(e)}")
+                return None
+        else:
+            # Usar LibreOffice en Linux
+            try:
+                # Comando de LibreOffice para convertir
+                cmd = [
+                    'libreoffice',
+                    '--headless',
+                    '--convert-to',
+                    'docx',
+                    '--outdir',
+                    temp_dir,
+                    doc_path
+                ]
+                
+                # Ejecutar el comando
+                subprocess.run(cmd, check=True, timeout=30)
+                
+                # Verificar si el archivo fue creado
+                if os.path.exists(output_path):
+                    # Copiar el archivo a la ubicación original
+                    shutil.copy2(output_path, doc_path)
+                    return doc_path
+                else:
+                    print("Error: LibreOffice no generó el archivo de salida")
+                    return None
+                    
+            except subprocess.CalledProcessError as e:
+                print(f"Error al ejecutar LibreOffice: {str(e)}")
+                return None
+            except Exception as e:
+                print(f"Error general en LibreOffice: {str(e)}")
+                return None
+            finally:
+                # Limpiar el directorio temporal
+                shutil.rmtree(temp_dir, ignore_errors=True)
+                
     except Exception as e:
         print(f"Error al convertir {doc_path} a .docx: {str(e)}")
-        try:
-            word.Quit()
-        except:
-            pass
         return None
 
 def extraer_texto_archivo(filename):

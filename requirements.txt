@@ -48,7 +48,7 @@ PyPDF2==3.0.1
 python-docx==1.2.0
 python-dotenv==1.1.0
 pytz==2024.2
-# pywin32==309 SOLO PARA WINDOWS
+pywin32==309
 requests==2.32.3
 requests-oauthlib==2.0.0
 rsa==4.9.1
